@@ -138,10 +138,15 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 
 func replaceProfaneWords(text string) string {
 	profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
-	for _, word := range profaneWords {
-		text = strings.ReplaceAll(strings.ToLower(text), word, "****")
+	words := strings.Split(text, " ")
+	for i, word := range words {
+		for _, profaneWord := range profaneWords {
+			if strings.ToLower(word) == profaneWord {
+				words[i] = "****"
+			}
+		}
 	}
-	return text
+	return strings.Join(words, " ")
 }
 
 func main() {
