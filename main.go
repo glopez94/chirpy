@@ -50,6 +50,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 )
 
@@ -103,22 +104,44 @@ func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Reques
 	err := decoder.Decode(&c)
 	if err != nil {
 		log.Printf("Error decoding chirp: %s", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"Something went wrong"}`))
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
 	}
 
 	if len(c.Body) > 140 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"Chirp is too long"}`))
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
 		return
 	}
 
+	cleanedBody := replaceProfaneWords(c.Body)
+	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanedBody})
+}
+
+func respondWithError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"valid":true}`))
+	w.WriteHeader(code)
+	w.Write([]byte(`{"error":"` + msg + `"}`))
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	response, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Error marshalling JSON: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Something went wrong"}`))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
+}
+
+func replaceProfaneWords(text string) string {
+	profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
+	for _, word := range profaneWords {
+		text = strings.ReplaceAll(strings.ToLower(text), word, "****")
+	}
+	return text
 }
 
 func main() {
