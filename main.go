@@ -85,6 +85,14 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
@@ -121,28 +129,28 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "All users deleted"})
 }
 
-func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
-	type chirp struct {
-		Body string `json:"body"`
-	}
+// func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+// 	type chirp struct {
+// 		Body string `json:"body"`
+// 	}
 
-	var c chirp
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&c)
-	if err != nil {
-		log.Printf("Error decoding chirp: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
-		return
-	}
+// 	var c chirp
+// 	decoder := json.NewDecoder(r.Body)
+// 	err := decoder.Decode(&c)
+// 	if err != nil {
+// 		log.Printf("Error decoding chirp: %s", err)
+// 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
+// 		return
+// 	}
 
-	if len(c.Body) > 140 {
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
-		return
-	}
+// 	if len(c.Body) > 140 {
+// 		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+// 		return
+// 	}
 
-	cleanedBody := replaceProfaneWords(c.Body)
-	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanedBody})
-}
+// 	cleanedBody := replaceProfaneWords(c.Body)
+// 	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanedBody})
+// }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -205,6 +213,47 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request) {
+	type request struct {
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
+
+	var req request
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&req)
+	if err != nil {
+		log.Printf("Error decoding request: %s", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if len(req.Body) > 140 {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+		return
+	}
+
+	cleanedBody := replaceProfaneWords(req.Body)
+
+	chirp, err := cfg.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   cleanedBody,
+		UserID: uuid.NullUUID{UUID: req.UserID, Valid: true},
+	})
+	if err != nil {
+		log.Printf("Error creating chirp: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not create chirp")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID.UUID,
+	})
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -229,8 +278,9 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", healthzHandler)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
-	mux.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
+	// mux.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
+	mux.HandleFunc("POST /api/chirps", apiCfg.createChirpHandler)
 
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
