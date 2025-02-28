@@ -254,6 +254,28 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.dbQueries.GetAllChirps(r.Context())
+	if err != nil {
+		log.Printf("Error retrieving chirps: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+		return
+	}
+
+	var response []Chirp
+	for _, chirp := range chirps {
+		response = append(response, Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID.UUID,
+		})
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -281,6 +303,7 @@ func main() {
 	// mux.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createChirpHandler)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirpsHandler)
 
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
