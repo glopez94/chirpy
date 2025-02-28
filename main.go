@@ -46,6 +46,7 @@
 package main
 
 import (
+	"chirpy/internal/auth"
 	"chirpy/internal/database"
 	"database/sql"
 	"encoding/json"
@@ -187,7 +188,8 @@ func replaceProfaneWords(text string) string {
 
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	type request struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	var req request
@@ -199,7 +201,17 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	user, err := cfg.dbQueries.CreateUser(r.Context(), req.Email)
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		log.Printf("Error hashing password: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not hash password")
+		return
+	}
+
+	user, err := cfg.dbQueries.CreateUser(r.Context(), database.CreateUserParams{
+		Email:          req.Email,
+		HashedPassword: hashedPassword,
+	})
 	if err != nil {
 		log.Printf("Error creating user: %s", err)
 		respondWithError(w, http.StatusInternalServerError, "Could not create user")
@@ -305,6 +317,43 @@ func (cfg *apiConfig) getChirpByIDHandler(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
+	type request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	var req request
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&req)
+	if err != nil {
+		log.Printf("Error decoding request: %s", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	user, err := cfg.dbQueries.GetUserByEmail(r.Context(), req.Email)
+	if err != nil {
+		log.Printf("Error retrieving user: %s", err)
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	err = auth.CheckPasswordHash(req.Password, user.HashedPassword)
+	if err != nil {
+		log.Printf("Error comparing password: %s", err)
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -333,6 +382,7 @@ func main() {
 	r.HandleFunc("/api/chirps", apiCfg.getAllChirpsHandler).Methods("GET")
 	r.HandleFunc("/api/chirps/{chirpID}", apiCfg.getChirpByIDHandler).Methods("GET")
 	r.HandleFunc("/api/users", apiCfg.createUserHandler).Methods("POST")
+	r.HandleFunc("/api/login", apiCfg.loginHandler).Methods("POST")
 
 	fileServer := http.FileServer(http.Dir("."))
 	r.PathPrefix("/app/").Handler(apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
