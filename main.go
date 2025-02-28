@@ -58,6 +58,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -276,6 +277,34 @@ func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request
 	respondWithJSON(w, http.StatusOK, response)
 }
 
+func (cfg *apiConfig) getChirpByIDHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	chirpID, err := uuid.Parse(vars["chirpID"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+		return
+	}
+
+	chirp, err := cfg.dbQueries.GetChirpByID(r.Context(), chirpID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+		} else {
+			log.Printf("Error retrieving chirp: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirp")
+		}
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID.UUID,
+	})
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -296,21 +325,21 @@ func main() {
 		platform:  platform,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/healthz", healthzHandler)
-	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
-	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
-	// mux.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
-	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
-	mux.HandleFunc("POST /api/chirps", apiCfg.createChirpHandler)
-	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirpsHandler)
+	r := mux.NewRouter()
+	r.HandleFunc("/api/healthz", healthzHandler).Methods("GET")
+	r.HandleFunc("/admin/metrics", apiCfg.metricsHandler).Methods("GET")
+	r.HandleFunc("/admin/reset", apiCfg.resetHandler).Methods("POST")
+	r.HandleFunc("/api/chirps", apiCfg.createChirpHandler).Methods("POST")
+	r.HandleFunc("/api/chirps", apiCfg.getAllChirpsHandler).Methods("GET")
+	r.HandleFunc("/api/chirps/{chirpID}", apiCfg.getChirpByIDHandler).Methods("GET")
+	r.HandleFunc("/api/users", apiCfg.createUserHandler).Methods("POST")
 
 	fileServer := http.FileServer(http.Dir("."))
-	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
+	r.PathPrefix("/app/").Handler(apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
 
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: mux,
+		Handler: r,
 	}
 
 	server.ListenAndServe()
