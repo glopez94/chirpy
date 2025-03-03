@@ -143,6 +143,60 @@
 //			UserID:    chirp.UserID.UUID,
 //		})
 //	}
+
+// func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
+// 	type request struct {
+// 		Email            string `json:"email"`
+// 		Password         string `json:"password"`
+// 		ExpiresInSeconds int64  `json:"expires_in_seconds,omitempty"`
+// 	}
+
+// 	var req request
+// 	decoder := json.NewDecoder(r.Body)
+// 	err := decoder.Decode(&req)
+// 	if err != nil {
+// 		log.Printf("Error decoding request: %s", err)
+// 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+// 		return
+// 	}
+
+// 	user, err := cfg.dbQueries.GetUserByEmail(r.Context(), req.Email)
+// 	if err != nil {
+// 		log.Printf("Error retrieving user: %s", err)
+// 		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+// 		return
+// 	}
+
+// 	err = auth.CheckPasswordHash(req.Password, user.HashedPassword)
+// 	if err != nil {
+// 		log.Printf("Error comparing password: %s", err)
+// 		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+// 		return
+// 	}
+
+// 	expiresIn := time.Hour
+// 	if req.ExpiresInSeconds > 0 {
+// 		expiresIn = time.Duration(req.ExpiresInSeconds) * time.Second
+// 		if expiresIn > time.Hour {
+// 			expiresIn = time.Hour
+// 		}
+// 	}
+
+// 	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, expiresIn)
+// 	if err != nil {
+// 		log.Printf("Error creating JWT: %s", err)
+// 		respondWithError(w, http.StatusInternalServerError, "Could not create token")
+// 		return
+// 	}
+
+//		respondWithJSON(w, http.StatusOK, map[string]any{ //interface{}
+//			"id":         user.ID,
+//			"created_at": user.CreatedAt,
+//			"updated_at": user.UpdatedAt,
+//			"email":      user.Email,
+//			"token":      token,
+//		})
+//	}
 package main
 
 import (
@@ -406,11 +460,57 @@ func (cfg *apiConfig) getChirpByIDHandler(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+		return
+	}
+
+	user, err := cfg.dbQueries.GetUserFromRefreshToken(r.Context(), tokenString)
+	if err != nil {
+		log.Printf("Error retrieving user from refresh token: %s", err)
+		respondWithError(w, http.StatusUnauthorized, "Invalid or expired refresh token")
+		return
+	}
+
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Hour)
+	if err != nil {
+		log.Printf("Error creating JWT: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not create token")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"token": token,
+	})
+}
+
+func (cfg *apiConfig) revokeHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+		return
+	}
+
+	err = cfg.dbQueries.RevokeRefreshToken(r.Context(), database.RevokeRefreshTokenParams{
+		Token:     tokenString,
+		RevokedAt: sql.NullTime{Time: time.Now().UTC(), Valid: true},
+		UpdatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		log.Printf("Error revoking refresh token: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not revoke refresh token")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 	type request struct {
-		Email            string `json:"email"`
-		Password         string `json:"password"`
-		ExpiresInSeconds int64  `json:"expires_in_seconds,omitempty"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	var req request
@@ -436,27 +536,40 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expiresIn := time.Hour
-	if req.ExpiresInSeconds > 0 {
-		expiresIn = time.Duration(req.ExpiresInSeconds) * time.Second
-		if expiresIn > time.Hour {
-			expiresIn = time.Hour
-		}
-	}
-
-	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, expiresIn)
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Hour)
 	if err != nil {
 		log.Printf("Error creating JWT: %s", err)
 		respondWithError(w, http.StatusInternalServerError, "Could not create token")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]any{ //interface{}
-		"id":         user.ID,
-		"created_at": user.CreatedAt,
-		"updated_at": user.UpdatedAt,
-		"email":      user.Email,
-		"token":      token,
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		log.Printf("Error creating refresh token: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not create refresh token")
+		return
+	}
+
+	err = cfg.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token:     refreshToken,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		UserID:    uuid.NullUUID{UUID: user.ID, Valid: true},
+		ExpiresAt: time.Now().UTC().Add(60 * 24 * time.Hour),
+	})
+	if err != nil {
+		log.Printf("Error storing refresh token: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not store refresh token")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"id":            user.ID,
+		"created_at":    user.CreatedAt,
+		"updated_at":    user.UpdatedAt,
+		"email":         user.Email,
+		"token":         token,
+		"refresh_token": refreshToken,
 	})
 }
 
@@ -491,6 +604,8 @@ func main() {
 	r.HandleFunc("/api/chirps/{chirpID}", apiCfg.getChirpByIDHandler).Methods("GET")
 	r.HandleFunc("/api/users", apiCfg.createUserHandler).Methods("POST")
 	r.HandleFunc("/api/login", apiCfg.loginHandler).Methods("POST")
+	r.HandleFunc("/api/refresh", apiCfg.refreshHandler).Methods("POST")
+	r.HandleFunc("/api/revoke", apiCfg.revokeHandler).Methods("POST")
 
 	fileServer := http.FileServer(http.Dir("."))
 	r.PathPrefix("/app/").Handler(apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
