@@ -43,6 +43,28 @@
 //	type Handler interface {
 //		ServeHTTP(ResponseWriter, *Request)
 //	}
+// func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+// 	type chirp struct {
+// 		Body string `json:"body"`
+// 	}
+
+// 	var c chirp
+// 	decoder := json.NewDecoder(r.Body)
+// 	err := decoder.Decode(&c)
+// 	if err != nil {
+// 		log.Printf("Error decoding chirp: %s", err)
+// 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
+// 		return
+// 	}
+
+// 	if len(c.Body) > 140 {
+// 		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+// 		return
+// 	}
+
+//		cleanedBody := replaceProfaneWords(c.Body)
+//		respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanedBody})
+//	}
 package main
 
 import (
@@ -130,29 +152,6 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "All users deleted"})
 }
-
-// func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
-// 	type chirp struct {
-// 		Body string `json:"body"`
-// 	}
-
-// 	var c chirp
-// 	decoder := json.NewDecoder(r.Body)
-// 	err := decoder.Decode(&c)
-// 	if err != nil {
-// 		log.Printf("Error decoding chirp: %s", err)
-// 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
-// 		return
-// 	}
-
-// 	if len(c.Body) > 140 {
-// 		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
-// 		return
-// 	}
-
-// 	cleanedBody := replaceProfaneWords(c.Body)
-// 	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanedBody})
-// }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
