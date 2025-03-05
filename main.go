@@ -197,6 +197,44 @@
 //			"token":      token,
 //		})
 //	}
+
+// func (cfg *apiConfig) polkaWebhookHandler(w http.ResponseWriter, r *http.Request) {
+// 	type requestData struct {
+// 		UserID uuid.UUID `json:"user_id"`
+// 	}
+
+// 	type request struct {
+// 		Event string      `json:"event"`
+// 		Data  requestData `json:"data"`
+// 	}
+
+// 	var req request
+// 	decoder := json.NewDecoder(r.Body)
+// 	err := decoder.Decode(&req)
+// 	if err != nil {
+// 		log.Printf("Error decoding request: %s", err)
+// 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+// 		return
+// 	}
+
+// 	if req.Event != "user.upgraded" {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+
+// 	err = cfg.dbQueries.UpgradeUserToChirpyRed(r.Context(), req.Data.UserID)
+// 	if err != nil {
+// 		if err == sql.ErrNoRows {
+// 			respondWithError(w, http.StatusNotFound, "User not found")
+// 		} else {
+// 			log.Printf("Error upgrading user to Chirpy Red: %s", err)
+// 			respondWithError(w, http.StatusInternalServerError, "Could not upgrade user")
+// 		}
+// 		return
+// 	}
+
+//		w.WriteHeader(http.StatusNoContent)
+//	}
 package main
 
 import (
@@ -233,6 +271,7 @@ type apiConfig struct {
 	dbQueries      *database.Queries
 	platform       string
 	jwtSecret      string
+	polkaKey       string
 }
 
 type User struct {
@@ -677,6 +716,12 @@ func (cfg *apiConfig) deleteChirpHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (cfg *apiConfig) polkaWebhookHandler(w http.ResponseWriter, r *http.Request) {
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil || apiKey != cfg.polkaKey {
+		respondWithError(w, http.StatusUnauthorized, "Invalid API key")
+		return
+	}
+
 	type requestData struct {
 		UserID uuid.UUID `json:"user_id"`
 	}
@@ -688,7 +733,7 @@ func (cfg *apiConfig) polkaWebhookHandler(w http.ResponseWriter, r *http.Request
 
 	var req request
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&req)
+	err = decoder.Decode(&req)
 	if err != nil {
 		log.Printf("Error decoding request: %s", err)
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
@@ -729,11 +774,13 @@ func main() {
 	dbQueries := database.New(db)
 	platform := os.Getenv("PLATFORM")
 	jwtSecret := os.Getenv("JWT_SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 
 	apiCfg := &apiConfig{
 		dbQueries: dbQueries,
 		platform:  platform,
 		jwtSecret: jwtSecret,
+		polkaKey:  polkaKey,
 	}
 
 	r := mux.NewRouter()
