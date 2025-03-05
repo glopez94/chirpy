@@ -626,6 +626,52 @@ func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (cfg *apiConfig) deleteChirpHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+		return
+	}
+
+	userID, err := auth.ValidateJWT(tokenString, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
+	vars := mux.Vars(r)
+	chirpID, err := uuid.Parse(vars["chirpID"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+		return
+	}
+
+	chirp, err := cfg.dbQueries.GetChirpByID(r.Context(), chirpID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+		} else {
+			log.Printf("Error retrieving chirp: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirp")
+		}
+		return
+	}
+
+	if chirp.UserID.UUID != userID {
+		respondWithError(w, http.StatusForbidden, "You are not the author of this chirp")
+		return
+	}
+
+	err = cfg.dbQueries.DeleteChirp(r.Context(), chirpID)
+	if err != nil {
+		log.Printf("Error deleting chirp: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not delete chirp")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -660,6 +706,7 @@ func main() {
 	r.HandleFunc("/api/refresh", apiCfg.refreshHandler).Methods("POST")
 	r.HandleFunc("/api/revoke", apiCfg.revokeHandler).Methods("POST")
 	r.HandleFunc("/api/users", apiCfg.updateUserHandler).Methods("PUT")
+	r.HandleFunc("/api/chirps/{chirpID}", apiCfg.deleteChirpHandler).Methods("DELETE")
 
 	fileServer := http.FileServer(http.Dir("."))
 	r.PathPrefix("/app/").Handler(apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
