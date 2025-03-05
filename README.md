@@ -3,6 +3,8 @@
 Chirpy es una aplicación de microblogging donde los usuarios pueden publicar y gestionar chirps (mensajes cortos). La aplicación incluye autenticación, manejo de tokens JWT, y una membresía premium llamada "Chirpy Red".
 
 ## Estructura del Proyecto
+
+```sh
 ├── .env 
 ├── .env.example 
 ├── .gitignore 
@@ -35,6 +37,7 @@ Chirpy es una aplicación de microblogging donde los usuarios pueden publicar y 
 │ │ ├── 004_create_refresh_tokens.sql 
 │ │ └── 005_add_is_chirpy_red_to_users.sql 
 └── sqlc.yaml
+```
 
 ## Configuración
 
