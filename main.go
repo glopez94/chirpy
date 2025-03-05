@@ -257,6 +257,48 @@
 
 //		respondWithJSON(w, http.StatusOK, response)
 //	}
+
+// func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request) {
+// 	authorID := r.URL.Query().Get("author_id")
+
+// 	var chirps []database.Chirp
+// 	var err error
+
+// 	if authorID != "" {
+// 		authorUUID, err := uuid.Parse(authorID)
+// 		if err != nil {
+// 			respondWithError(w, http.StatusBadRequest, "Invalid author ID")
+// 			return
+// 		}
+// 		authorNullUUID := uuid.NullUUID{UUID: authorUUID, Valid: true}
+// 		chirps, err = cfg.dbQueries.GetChirpsByAuthorID(r.Context(), authorNullUUID)
+// 		if err != nil {
+// 			log.Printf("Error retrieving chirps by author: %s", err)
+// 			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+// 			return
+// 		}
+// 	} else {
+// 		chirps, err = cfg.dbQueries.GetAllChirps(r.Context())
+// 		if err != nil {
+// 			log.Printf("Error retrieving all chirps: %s", err)
+// 			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+// 			return
+// 		}
+// 	}
+
+// 	var response []Chirp
+// 	for _, chirp := range chirps {
+// 		response = append(response, Chirp{
+// 			ID:        chirp.ID,
+// 			CreatedAt: chirp.CreatedAt,
+// 			UpdatedAt: chirp.UpdatedAt,
+// 			Body:      chirp.Body,
+// 			UserID:    chirp.UserID.UUID,
+// 		})
+// 	}
+
+//		respondWithJSON(w, http.StatusOK, response)
+//	}
 package main
 
 import (
@@ -267,6 +309,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -475,6 +518,7 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 
 func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request) {
 	authorID := r.URL.Query().Get("author_id")
+	sortOrder := r.URL.Query().Get("sort")
 
 	var chirps []database.Chirp
 	var err error
@@ -499,6 +543,16 @@ func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request
 			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
 			return
 		}
+	}
+
+	if sortOrder == "desc" {
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+		})
+	} else {
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+		})
 	}
 
 	var response []Chirp
