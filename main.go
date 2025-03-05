@@ -235,6 +235,28 @@
 
 //		w.WriteHeader(http.StatusNoContent)
 //	}
+
+// func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request) {
+// 	chirps, err := cfg.dbQueries.GetAllChirps(r.Context())
+// 	if err != nil {
+// 		log.Printf("Error retrieving chirps: %s", err)
+// 		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+// 		return
+// 	}
+
+// 	var response []Chirp
+// 	for _, chirp := range chirps {
+// 		response = append(response, Chirp{
+// 			ID:        chirp.ID,
+// 			CreatedAt: chirp.CreatedAt,
+// 			UpdatedAt: chirp.UpdatedAt,
+// 			Body:      chirp.Body,
+// 			UserID:    chirp.UserID.UUID,
+// 		})
+// 	}
+
+//		respondWithJSON(w, http.StatusOK, response)
+//	}
 package main
 
 import (
@@ -452,11 +474,31 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (cfg *apiConfig) getAllChirpsHandler(w http.ResponseWriter, r *http.Request) {
-	chirps, err := cfg.dbQueries.GetAllChirps(r.Context())
-	if err != nil {
-		log.Printf("Error retrieving chirps: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
-		return
+	authorID := r.URL.Query().Get("author_id")
+
+	var chirps []database.Chirp
+	var err error
+
+	if authorID != "" {
+		authorUUID, err := uuid.Parse(authorID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid author ID")
+			return
+		}
+		authorNullUUID := uuid.NullUUID{UUID: authorUUID, Valid: true}
+		chirps, err = cfg.dbQueries.GetChirpsByAuthorID(r.Context(), authorNullUUID)
+		if err != nil {
+			log.Printf("Error retrieving chirps by author: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+			return
+		}
+	} else {
+		chirps, err = cfg.dbQueries.GetAllChirps(r.Context())
+		if err != nil {
+			log.Printf("Error retrieving all chirps: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+			return
+		}
 	}
 
 	var response []Chirp
