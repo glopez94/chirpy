@@ -573,6 +573,59 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+		return
+	}
+
+	userID, err := auth.ValidateJWT(tokenString, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
+	type request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	var req request
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&req)
+	if err != nil {
+		log.Printf("Error decoding request: %s", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		log.Printf("Error hashing password: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not hash password")
+		return
+	}
+
+	user, err := cfg.dbQueries.UpdateUser(r.Context(), database.UpdateUserParams{
+		ID:             userID,
+		Email:          req.Email,
+		HashedPassword: hashedPassword,
+	})
+	if err != nil {
+		log.Printf("Error updating user: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not update user")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -606,6 +659,7 @@ func main() {
 	r.HandleFunc("/api/login", apiCfg.loginHandler).Methods("POST")
 	r.HandleFunc("/api/refresh", apiCfg.refreshHandler).Methods("POST")
 	r.HandleFunc("/api/revoke", apiCfg.revokeHandler).Methods("POST")
+	r.HandleFunc("/api/users", apiCfg.updateUserHandler).Methods("PUT")
 
 	fileServer := http.FileServer(http.Dir("."))
 	r.PathPrefix("/app/").Handler(apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
