@@ -75,26 +75,34 @@ El servidor estará disponible en http://localhost:8080.
 
 #### Autenticación
 
+```sh
 POST /api/users: Crear un nuevo usuario.
 POST /api/login: Iniciar sesión y obtener un token JWT.
 POST /api/refresh: Obtener un nuevo token JWT usando un token de refresco.
 POST /api/revoke: Revocar un token de refresco.
+```
 
 #### Chirps
 
+```sh
 GET /api/chirps: Obtener todos los chirps. Opcionalmente, se puede filtrar por author_id y ordenar por sort (asc o desc).
 POST /api/chirps: Crear un nuevo chirp (requiere autenticación).
 GET /api/chirps/{chirpID}: Obtener un chirp por su ID.
 DELETE /api/chirps/{chirpID}: Eliminar un chirp por su ID (requiere autenticación y ser el autor).
+```
 
 #### Administración
 
+```sh
 GET /admin/metrics: Obtener métricas del servidor.
 POST /admin/reset: Eliminar todos los usuarios (solo en modo desarrollo).
+```
 
 #### Webhooks
 
+```sh
 POST /api/polka/webhooks: Manejar webhooks de Polka para actualizar el estado de membresía de los usuarios.
+```
 
 ## Pruebas
 
